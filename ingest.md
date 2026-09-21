@@ -1,14 +1,19 @@
 # Ingest
 
-Read today's browsing history from Chrome and YouTube, tag each new URL, and append the
-result to the brain-graph database in Turso. This prompt runs unattended once a day as a
-Claude Code Desktop Scheduled Task, so it must complete without asking any questions.
+Read today's browsing from Chrome and YouTube, tag each new URL, and append the result to
+the brain-graph database in Turso. This prompt runs unattended once a day as a Claude Code
+Desktop Scheduled Task, so it must complete without asking any questions.
 
 ## Contract
 
-The run does exactly three things: it reads two history pages through the Claude in Chrome
-extension, it derives tags for URLs that are new since the last cursor, and it appends rows
-to Turso. It writes nothing back to the browser, deletes nothing from the database, and
+The run reads two sources by two different means, because they are not equally reachable.
+Chrome history comes from the local history database on disk, since the `chrome://history/`
+page cannot be opened or read by a browser extension and shows only titles and domains
+rather than full URLs. YouTube history comes from the signed-in web page through the Claude
+in Chrome extension, which is the only place that data exists.
+
+From there the run derives tags for URLs newer than the last cursor and appends rows to
+Turso. It writes nothing back to the browser, deletes nothing from the database, and
 touches no file in this repository.
 
 Failure is loud and non-destructive. If any step fails, stop and let the error surface
@@ -36,22 +41,55 @@ Follow these in order. Each step depends on the one before it.
 1. Read the cursor. Query `SELECT source, last_run_at FROM ingest_state` and keep the value
    per source. When a source has no row, use `now - 24h` as its starting point. Call this
    value `since` for the rest of the run.
-2. Read Chrome history. Open `chrome://history/` with
-   `mcp__claude-in-chrome__navigate`, then extract the visible rows with
-   `mcp__claude-in-chrome__get_page_text`. Keep only entries newer than `since`. The list
-   scrolls infinitely, so stop after `200` entries even if older rows remain.
-3. Read YouTube history. Open `https://www.youtube.com/feed/history` the same way and
-   extract watched videos newer than `since`, under the same `200` entry cap.
-4. Filter. Drop every URL matching the exclusion patterns below before it reaches the model
+2. Read Chrome history from disk, as described in the section below. Keep visits newer than
+   `since`, and stop after `200` rows.
+3. Read YouTube history. Open `https://www.youtube.com/feed/history` with
+   `mcp__claude-in-chrome__navigate`, then extract the page with
+   `mcp__claude-in-chrome__read_page` using `filter: "all"`. The `interactive` filter
+   returns only the navigation sidebar, and `get_page_text` returns nothing at all, because
+   the page renders entirely in JavaScript. Collect `link` elements whose `href` contains
+   `/watch?v=`, taking the link text as the title. Stop after `200` entries.
+4. Date the YouTube entries. The page groups videos under day headings such as 今日 or
+   昨日 rather than exact times, so use the start of that day in local time, expressed in
+   unix milliseconds, as `visited_at`. A fixed value per day keeps the same watch
+   deduplicating against itself on every later run; the current clock time would not.
+5. Filter. Drop every URL matching the exclusion patterns below before it reaches the model
    or the database.
-5. Derive tags. For each surviving URL, infer `3` to `8` topical tags from its title and
+6. Derive tags. For each surviving URL, infer `3` to `8` topical tags from its title and
    URL. Tags are lowercase English noun phrases describing subject matter, not format or
    sentiment. Return strict JSON and nothing else: `{"tags": ["...", "..."]}`.
-6. Write. Execute the statements in the section below against the Turso HTTP API.
-7. Advance the cursor. Upsert `ingest_state` for each source with the current unix
-   milliseconds, but only after the writes of step 6 succeeded.
-8. Report. Print the number of URLs, visits, and tag edges added, then exit. A run that
+7. Write. Execute the statements in the Database section against the Turso HTTP API.
+8. Advance the cursor. Upsert `ingest_state` for each source with the current unix
+   milliseconds, but only after the writes of step 7 succeeded.
+9. Report. Print the number of URLs, visits, and tag edges added, then exit. A run that
    finds nothing new prints zeros and still counts as success.
+
+## Chrome
+
+Chrome keeps its history in a SQLite database at
+`~/Library/Application Support/Google/Chrome/Default/History`. The running browser holds a
+lock on it, so copy the file to a temporary directory, read the copy, and delete it when
+the query is done. Never write to the original.
+
+Timestamps there are microseconds since 1601-01-01, not unix milliseconds, so both the
+comparison and the result need converting.
+
+```shell
+SRC="$HOME/Library/Application Support/Google/Chrome/Default/History"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+cp "$SRC" "$TMP/history"
+sqlite3 "$TMP/history" "
+  SELECT u.url, u.title, v.visit_time / 1000 - 11644473600000 AS visited_at_ms
+  FROM visits v JOIN urls u ON u.id = v.url
+  WHERE v.visit_time > ($SINCE_MS + 11644473600000) * 1000
+  ORDER BY v.visit_time DESC
+  LIMIT 200;"
+```
+
+Reading this file requires a Bash permission rule, because it holds personal data and is
+blocked by default. Grant it once during the first manual run; without it this step fails
+and the Chrome half of the graph stays empty.
 
 ## Exclusions
 
@@ -71,7 +109,8 @@ model.
 
 Strip the query string and fragment from every URL that survives, keeping scheme, host, and
 path. This removes tracking parameters and session identifiers that the patterns above
-would otherwise have to enumerate.
+would otherwise have to enumerate. YouTube watch URLs are the one exception: keep the `v`
+parameter, since it is the identity of the video rather than a tracking artefact.
 
 ## Database
 
@@ -112,8 +151,8 @@ the statement.
 ```
 
 Write the four statements below in this order, once per URL. The upsert on `urls` keeps
-`last_seen` current, which the plain insert-or-ignore of a first draft would have left
-stale. `visits` and `has_tag` ignore duplicates, so reprocessing a window changes nothing.
+`last_seen` current, which a plain insert-or-ignore would have left stale. `visits` and
+`has_tag` ignore duplicates, so reprocessing a window changes nothing.
 
 | Target | Statement |
 | :-- | :-- |
