@@ -1,4 +1,4 @@
-# brain-graph
+# brain
 
 A Claude Code Desktop Scheduled Task reads Chrome's history database and, through Claude
 in Chrome, `youtube.com/feed/history` once a day, and appends a bipartite graph of URLs and
@@ -59,21 +59,21 @@ and sign in to all three before continuing.
 Create the database, then read back the values the ingest run needs.
 
 ```bash
-turso db create brain-graph
+turso db create brain
 ```
 
 ```bash
-turso db show brain-graph
+turso db show brain
 ```
 
 ```bash
-turso db tokens create brain-graph
+turso db tokens create brain
 ```
 
 Apply the schema to the new database.
 
 ```bash
-turso db shell brain-graph < schema.sql
+turso db shell brain < schema.sql
 ```
 
 ### Credentials
@@ -82,7 +82,7 @@ Store the endpoint and the token outside this repository. The scheduled task has
 environment of its own, so the ingest run reads this file directly.
 
 ```bash
-mkdir -p ~/.config/brain-graph && printf 'TURSO_DATABASE_URL=libsql://...\nTURSO_AUTH_TOKEN=...\n' > ~/.config/brain-graph/env && chmod 600 ~/.config/brain-graph/env
+mkdir -p ~/.config/brain && printf 'TURSO_DATABASE_URL=libsql://...\nTURSO_AUTH_TOKEN=...\n' > ~/.config/brain/env && chmod 600 ~/.config/brain/env
 ```
 
 ### Schedule

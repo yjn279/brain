@@ -1,4 +1,4 @@
--- brain-graph schema for Turso (libSQL).
+-- brain schema for Turso (libSQL).
 -- Bipartite graph: urls <-> tags, joined by has_tag. Visits are append-only events.
 -- All timestamps are unix milliseconds.
 

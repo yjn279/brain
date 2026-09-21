@@ -1,7 +1,7 @@
 # Ingest
 
 Read today's browsing from Chrome and YouTube, tag each new URL, and append the result to
-the brain-graph database in Turso. This prompt runs unattended once a day as a Claude Code
+the brain database in Turso. This prompt runs unattended once a day as a Claude Code
 Desktop Scheduled Task, so it must complete without asking any questions.
 
 ## Contract
@@ -23,11 +23,11 @@ Every insert below is idempotent, so a partial run costs nothing but repeated wo
 
 ## Credentials
 
-Load the database endpoint and token from `~/.config/brain-graph/env`, which lives outside
+Load the database endpoint and token from `~/.config/brain/env`, which lives outside
 the repository and is never committed. Read it with Bash at the start of the run.
 
 ```shell
-set -a && . "$HOME/.config/brain-graph/env" && set +a
+set -a && . "$HOME/.config/brain/env" && set +a
 ```
 
 The file defines `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`. If either is empty, stop
