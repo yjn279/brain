@@ -1,6 +1,6 @@
 # Privacy
 
-brain-graph は個人の閲覧履歴を材料にする。したがって、何が公開され、何が手元に留まり、
+brain は個人の閲覧履歴を材料にする。したがって、何が公開され、何が手元に留まり、
 どこへ送られるのかを曖昧にしない。この文書はその境界を定義する。
 
 ## Repository
@@ -15,16 +15,16 @@ fork した利用者は自分の Turso データベースを作り、自分の�
 ## Credentials
 
 Turso の接続先とトークンは手元の環境にのみ置く。保管場所はリポジトリの外、
-`~/.config/brain-graph/env` とし、パーミッションは `600` にする。
+`~/.config/brain/env` とし、パーミッションは `600` にする。
 
 ```shell
-mkdir -p ~/.config/brain-graph
-chmod 600 ~/.config/brain-graph/env
+mkdir -p ~/.config/brain
+chmod 600 ~/.config/brain/env
 ```
 
 リポジトリの `.gitignore` は `.env` と `.env.*` 、および `*.db` と `*.sqlite` を除外する。
 これは事故を防ぐ二重の備えであって、リポジトリ内に秘密情報を置いてよい理由にはならない。
-トークンが漏れた場合は `turso db tokens invalidate brain-graph` で全トークンを失効させ、
+トークンが漏れた場合は `turso db tokens invalidate brain` で全トークンを失効させ、
 発行し直す。
 
 ## Exclusions
