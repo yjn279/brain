@@ -123,12 +123,13 @@ curl -sS -X POST "${TURSO_DATABASE_URL/libsql:\/\//https://}/v2/pipeline" \
   -H "Authorization: Bearer ${TURSO_AUTH_TOKEN}" \
   -H "Content-Type: application/json" \
   --fail-with-body \
-  -d @request.json
+  -d @"$TMP/request.json"
 ```
 
-The body holds a list of requests ending in a `close`. Bind every value as an argument
-rather than interpolating it into the SQL, so that titles containing quotes cannot break
-the statement.
+The body holds a list of requests ending in a `close`. Write it to the temporary directory
+created for the Chrome step, never into this repository, because it carries URLs and titles.
+Bind every value as an argument rather than interpolating it into the SQL, so that titles
+containing quotes cannot break the statement.
 
 ```json
 {
@@ -136,7 +137,7 @@ the statement.
     {
       "type": "execute",
       "stmt": {
-        "sql": "INSERT INTO urls (url, title, first_seen, last_seen) VALUES (?, ?, ?, ?) ON CONFLICT(url) DO UPDATE SET last_seen = excluded.last_seen, title = COALESCE(excluded.title, urls.title)",
+        "sql": "INSERT INTO urls (url, title, first_seen, last_seen) VALUES (?, ?, ?, ?) ON CONFLICT(url) DO UPDATE SET first_seen = MIN(urls.first_seen, excluded.first_seen), last_seen = MAX(urls.last_seen, excluded.last_seen), title = COALESCE(excluded.title, urls.title)",
         "args": [
           { "type": "text", "value": "https://example.com/article" },
           { "type": "text", "value": "An article" },
@@ -150,13 +151,19 @@ the statement.
 }
 ```
 
-Write the four statements below in this order, once per URL. The upsert on `urls` keeps
-`last_seen` current, which a plain insert-or-ignore would have left stale. `visits` and
-`has_tag` ignore duplicates, so reprocessing a window changes nothing.
+Write the four statements below in this order. Run `urls`, `tags`, and `has_tag` once per
+distinct URL, and `visits` once per visit row, since one URL visited three times yields
+three visit rows but a single URL row.
+
+The upsert on `urls` takes the minimum of the two `first_seen` values and the maximum of the
+two `last_seen` values rather than overwriting. The Chrome query returns visits newest
+first, so a plain assignment would walk `last_seen` backwards as older rows of the same URL
+arrived. `visits` and `has_tag` ignore duplicates, so reprocessing a window changes
+nothing.
 
 | Target | Statement |
 | :-- | :-- |
-| `urls` | `INSERT INTO urls (url, title, first_seen, last_seen) VALUES (?, ?, ?, ?) ON CONFLICT(url) DO UPDATE SET last_seen = excluded.last_seen, title = COALESCE(excluded.title, urls.title)` |
+| `urls` | `INSERT INTO urls (url, title, first_seen, last_seen) VALUES (?, ?, ?, ?) ON CONFLICT(url) DO UPDATE SET first_seen = MIN(urls.first_seen, excluded.first_seen), last_seen = MAX(urls.last_seen, excluded.last_seen), title = COALESCE(excluded.title, urls.title)` |
 | `tags` | `INSERT INTO tags (name) VALUES (?) ON CONFLICT(name) DO NOTHING` |
 | `visits` | `INSERT OR IGNORE INTO visits (url_id, visited_at, source) VALUES ((SELECT id FROM urls WHERE url = ?), ?, ?)` |
 | `has_tag` | `INSERT OR REPLACE INTO has_tag (url_id, tag_id, source, confidence, created_at) VALUES ((SELECT id FROM urls WHERE url = ?), (SELECT id FROM tags WHERE name = ?), 'llm', ?, ?)` |
