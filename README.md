@@ -1,20 +1,22 @@
 # brain-graph
 
-A Claude Code Desktop Scheduled Task reads `chrome://history/` and
-`youtube.com/feed/history` through Claude in Chrome once a day, and appends a bipartite
-graph of URLs and tags to Turso.
+A Claude Code Desktop Scheduled Task reads Chrome's history database and, through Claude
+in Chrome, `youtube.com/feed/history` once a day, and appends a bipartite graph of URLs and
+tags to Turso.
 
 ## Architecture
 
-The pipeline has no server and no application code. A scheduled Claude Code session drives
-the browser extension, infers tags, and writes rows over the Turso HTTP API.
+The pipeline has no server and no application code. A scheduled Claude Code session reads
+both histories, infers tags, and writes rows over the Turso HTTP API. The two sources are
+read differently: Chrome's history lives in a local SQLite file, while YouTube's exists
+only on the signed-in page and is reached through the browser extension.
 
 ```mermaid
 flowchart LR
-  task[定期実行] --> chrome[ブラウザ]
-  chrome --> history[閲覧履歴]
+  task[定期実行] --> historyDb[閲覧履歴]
+  task --> chrome[ブラウザ]
   chrome --> youtube[視聴履歴]
-  history --> tagger[タグ推論]
+  historyDb --> tagger[タグ推論]
   youtube --> tagger
   tagger --> turso[データベース]
 ```
@@ -87,8 +89,13 @@ mkdir -p ~/.config/brain-graph && printf 'TURSO_DATABASE_URL=libsql://...\nTURSO
 
 Open Claude Code, ask it to create a daily scheduled task at 3am, and paste the contents of
 [ingest.md](ingest.md) as the task prompt. The task runs while the desktop app is open; if
-the app is closed when the task is due, it runs at the next launch. Run it once by hand
-before trusting the schedule, so that the first tagging pass happens while you are watching.
+the app is closed when the task is due, it runs at the next launch.
+
+Run it once by hand before trusting the schedule. Reading Chrome's history file is blocked
+by default as personal data, so the first run raises a permission prompt and you must add
+the Bash rule it suggests; an unattended run cannot answer that prompt and would leave the
+Chrome half of the graph permanently empty. The first run also needs the Claude in Chrome
+extension connected and YouTube signed in.
 
 ## Privacy
 
