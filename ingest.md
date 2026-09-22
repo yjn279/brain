@@ -44,20 +44,26 @@ Follow these in order. Each step depends on the one before it.
 2. Read Chrome history from disk, as described in the section below. Keep visits newer than
    `since`, and stop after `200` rows.
 3. Read YouTube history. Open `https://www.youtube.com/feed/history` with
-   `mcp__claude-in-chrome__navigate`, then extract the page with
-   `mcp__claude-in-chrome__read_page` using `filter: "all"`. The `interactive` filter
-   returns only the navigation sidebar, and `get_page_text` returns nothing at all, because
-   the page renders entirely in JavaScript. Collect `link` elements whose `href` contains
-   `/watch?v=`, taking the link text as the title. Stop after `200` entries.
+   `mcp__claude-in-chrome__navigate`, then extract it with
+   `mcp__claude-in-chrome__javascript_tool`. `get_page_text` returns nothing and
+   `read_page` with `filter: "interactive"` returns only the navigation sidebar, because
+   the page renders entirely in JavaScript. Each day is a `ytd-item-section-renderer`
+   whose `#title` holds the heading, and each video inside it is a `yt-lockup-view-model`
+   containing an `a[href*="/watch?v="]`. Scroll to the document bottom in a loop until the
+   count stops growing, then stop after `200` entries.
 4. Date the YouTube entries. The page groups videos under day headings such as 今日 or
    昨日 rather than exact times, so use the start of that day in local time, expressed in
    unix milliseconds, as `visited_at`. A fixed value per day keeps the same watch
    deduplicating against itself on every later run; the current clock time would not.
 5. Filter. Drop every URL matching the exclusion patterns below before it reaches the model
    or the database.
-6. Derive tags. For each surviving URL, infer `3` to `8` topical tags from its title and
-   URL. Tags are lowercase English noun phrases describing subject matter, not format or
-   sentiment. Return strict JSON and nothing else: `{"tags": ["...", "..."]}`.
+6. Derive tags in batches of `20` URLs per request, which keeps the call count low
+   without letting any one response grow unwieldy. For each URL infer `3` to `8` topical
+   tags in Japanese from its title and URL, describing subject matter rather than format
+   or sentiment. Reuse an existing tag string whenever the topic repeats, because shared
+   tags are the only thing that connects two URLs in this graph. Return strict JSON and
+   nothing else: `{"tags": [["...", "..."], ["...", "..."]]}`, one array per input URL in
+   the order given.
 7. Write. Execute the statements in the Database section against the Turso HTTP API.
 8. Advance the cursor. Upsert `ingest_state` for each source with the current unix
    milliseconds, but only after the writes of step 7 succeeded.
@@ -102,8 +108,8 @@ model.
 | `localhost`, `127.0.0.1`, `*.local`, private IP ranges | Local development, not reading |
 | Any URL carrying `token`, `access_token`, `code`, `session`, `key`, `password`, `signature` in its query | Credentials leak through query strings |
 | `*/login*`, `*/signin*`, `*/oauth*`, `*/auth/*`, `*/sso*`, `*/reset-password*` | Authentication flows |
-| `mail.google.com`, `*/inbox*`, `*/messages*`, `web.whatsapp.com` | Private correspondence |
-| Banking, brokerage, insurance, and payment domains | Financial records |
+| `mail.google.com`, `accounts.google.com`, `myaccount.google.com`, `*/inbox*`, `*/messages*`, `web.whatsapp.com` | Private correspondence and account management |
+| Banking, brokerage, insurance, payment, and household-accounting domains, including `moneyforward`, `freee`, and `zaim` | Financial records |
 | `*/health*`, `*/medical*`, clinic and pharmacy domains | Medical information |
 | `chrome://*`, `chrome-extension://*`, `file://*`, `about:*` | Browser internals, not content |
 
